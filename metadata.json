@@ -1,0 +1,6 @@
+{
+  "name": "SignBridge AI",
+  "description": "Realtime AI-powered Sign Language translator with bidirectional hand-gesture-to-speech/text and speech-to-sign avatar, floating video call overlay, offline support, haptic feedback, and searchable transcript.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
