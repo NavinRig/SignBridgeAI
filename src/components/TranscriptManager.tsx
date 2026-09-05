@@ -27,13 +27,21 @@ import { hapticService } from '../services/hapticService';
 interface TranscriptManagerProps {
   transcripts: TranscriptItem[];
   onUpdateTranscripts: (items: TranscriptItem[]) => void;
+  onToggleBookmark?: (id: string) => void;
+  onDeleteTranscript?: (id: string) => void;
   onSelectGlossForAvatar?: (text: string, gloss?: string) => void;
+  isCloudSynced?: boolean;
+  userEmail?: string | null;
 }
 
 export const TranscriptManager: React.FC<TranscriptManagerProps> = ({
   transcripts,
   onUpdateTranscripts,
+  onToggleBookmark: propsToggleBookmark,
+  onDeleteTranscript: propsDeleteTranscript,
   onSelectGlossForAvatar,
+  isCloudSynced,
+  userEmail,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'sign_to_speech' | 'speech_to_sign' | 'bookmarked'>('all');
@@ -62,15 +70,23 @@ export const TranscriptManager: React.FC<TranscriptManagerProps> = ({
 
   // Toggle Bookmark
   const handleToggleBookmark = (id: string) => {
-    const updated = storageService.toggleBookmark(id);
-    onUpdateTranscripts(updated);
+    if (propsToggleBookmark) {
+      propsToggleBookmark(id);
+    } else {
+      const updated = storageService.toggleBookmark(id);
+      onUpdateTranscripts(updated);
+    }
     hapticService.trigger('light');
   };
 
   // Delete Item
   const handleDeleteItem = (id: string) => {
-    const updated = storageService.deleteTranscript(id);
-    onUpdateTranscripts(updated);
+    if (propsDeleteTranscript) {
+      propsDeleteTranscript(id);
+    } else {
+      const updated = storageService.deleteTranscript(id);
+      onUpdateTranscripts(updated);
+    }
     hapticService.trigger('warning');
   };
 
@@ -175,6 +191,16 @@ export const TranscriptManager: React.FC<TranscriptManagerProps> = ({
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/10 text-blue-300 border border-white/15 backdrop-blur-md">
                   {transcripts.length} items
                 </span>
+                {isCloudSynced ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 backdrop-blur-md flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    Firestore Synced
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/5 text-slate-400 border border-white/10 backdrop-blur-md">
+                    Local Cache
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-400">
                 Synchronized bidirectional sign & speech historical logs

@@ -65,6 +65,8 @@ export interface AvatarKeyframe {
   };
 }
 
+export type BackgroundBlurMode = 'off' | 'subtle' | 'medium' | 'deep' | 'bokeh';
+
 export interface OverlaySettings {
   mode: 'full' | 'floating_pip' | 'meet_overlay' | 'compact_badge' | 'hud_transparent';
   position: { x: number; y: number };
@@ -79,11 +81,24 @@ export interface OverlaySettings {
   highContrastMode: boolean;
   fontSize: 'sm' | 'md' | 'lg' | 'xl';
   simulatedMeetingBg: 'none' | 'google_meet' | 'zoom_grid' | 'teams_gallery' | 'screen_share';
+  backgroundBlur: BackgroundBlurMode;
+  backgroundBlurRadius: number;
   activeCameraId?: string;
   fpsLimit: number;
   speechVoice?: string;
   speechRate: number;
   autoCommitDelayMs: number;
+}
+
+export interface UserPreferences {
+  backgroundBlur: BackgroundBlurMode;
+  backgroundBlurRadius: number;
+  handedness?: HandednessMode;
+  highContrastMode?: boolean;
+  fontSize?: 'sm' | 'md' | 'lg' | 'xl';
+  hapticsEnabled?: boolean;
+  soundCuesEnabled?: boolean;
+  updatedAt?: number;
 }
 
 export interface MeetingSummaryData {
@@ -132,4 +147,85 @@ export interface LandmarkMatchResult {
   normalizedUserLandmarks: { x: number; y: number; z: number }[];
   normalizedRefLandmarks: { x: number; y: number; z: number }[];
   keypointErrors: number[];
+}
+
+export interface FaceLandmark {
+  x: number;
+  y: number;
+  z?: number;
+  name?: string;
+}
+
+export type EmotionCategory =
+  | 'joy'
+  | 'empathy'
+  | 'inquiry'
+  | 'calm'
+  | 'drive'
+  | 'expressive';
+
+export interface DetectedEmotion {
+  emotion:
+    | 'Happy'
+    | 'Joyful'
+    | 'Surprised'
+    | 'Inquisitive'
+    | 'Focused'
+    | 'Confused'
+    | 'Calm'
+    | 'Excited'
+    | 'Sad'
+    | 'Neutral'
+    | 'Proud'
+    | 'Grateful'
+    | 'Loving';
+  confidence: number;
+  nonManualMarker:
+    | 'smile'
+    | 'broad_smile'
+    | 'eyebrows_raised'
+    | 'wh_question_furrow'
+    | 'surprised'
+    | 'neutral'
+    | 'concentrating'
+    | 'contemplative'
+    | 'contrite';
+  valence: 'positive' | 'neutral' | 'inquiry' | 'concern';
+  description: string;
+  intensity: number; // 0 to 1
+  facialMetrics: {
+    smileRatio: number;
+    eyebrowRaise: number;
+    eyebrowFurrow: number;
+    mouthOpenRatio: number;
+    headTilt: number;
+  };
+}
+
+export interface AvatarEmotion {
+  id: string;
+  name: string;
+  aslSign: string;
+  category: EmotionCategory;
+  categoryLabel: string;
+  nonManualMarker: string;
+  description: string;
+  dialogueExample: string;
+  durationMs: number;
+  facialExpression: {
+    eyebrowOffset: number; // -8 to +8 (negative = raised, positive = furrowed/lowered)
+    eyebrowShape: 'raised' | 'furrowed' | 'arched' | 'slanted' | 'neutral';
+    mouthSmile: number; // -8 (frown) to +12 (wide smile)
+    mouthOpen: number; // 0 (closed) to 14 (gasp/open)
+    eyeAperture: number; // 0.6 (squint) to 1.4 (wide eyes)
+    headTilt: number; // -0.2 to +0.2 rad
+    headNod: number; // frequency multiplier
+    cheekBlush?: boolean;
+  };
+  handPose: {
+    twoHands: boolean;
+    primaryTrajectory: 'wave' | 'chest_sweep' | 'chin_forward' | 'heart_cross' | 'temple_touch' | 'circular_rub' | 'flicker' | 'downward_float' | 'forward_push' | 'fist_chest' | 'upward_burst' | 'claw_freeze' | 'side_wiggle';
+    fingerCurls: [number, number, number, number, number]; // thumb, index, middle, ring, pinky (1 = extended, 0.3 = folded)
+    secondaryFingerCurls?: [number, number, number, number, number];
+  };
 }

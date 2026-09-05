@@ -29,6 +29,8 @@ interface SignDictionaryViewProps {
   userLandmarks?: HandLandmark[];
   videoStream?: MediaStream | null;
   isCameraActive?: boolean;
+  masteredSigns?: Record<string, boolean>;
+  onSaveMastery?: (signId: string, signName: string, score: number) => void;
   onToggleCamera?: () => void;
   onSelectForAvatar: (text: string, gloss?: string) => void;
   onAnalyzeDeep: (signName: string) => void;
@@ -39,6 +41,8 @@ export const SignDictionaryView: React.FC<SignDictionaryViewProps> = ({
   userLandmarks = [],
   videoStream = null,
   isCameraActive = false,
+  masteredSigns = {},
+  onSaveMastery,
   onToggleCamera = () => {},
   onSelectForAvatar,
   onAnalyzeDeep,
@@ -48,6 +52,8 @@ export const SignDictionaryView: React.FC<SignDictionaryViewProps> = ({
   const [activeTrainerSign, setActiveTrainerSign] = useState<SignDefinition | null>(null);
   const [practiceCompleted, setPracticeCompleted] = useState<Record<string, boolean>>({});
   const [selectedHandedness, setSelectedHandedness] = useState<HandednessMode>('Right');
+
+  const effectiveMastered = { ...practiceCompleted, ...masteredSigns };
 
   const filteredSigns = SIGN_DICTIONARY.filter((sign) => {
     const matchesSearch =
@@ -70,6 +76,13 @@ export const SignDictionaryView: React.FC<SignDictionaryViewProps> = ({
         detectedGesture={currentDetectedGesture}
         videoStream={videoStream}
         isCameraActive={isCameraActive}
+        initialMasteredSigns={effectiveMastered}
+        onSignMastered={(signId, signName, score) => {
+          setPracticeCompleted((prev) => ({ ...prev, [signId]: true }));
+          if (onSaveMastery) {
+            onSaveMastery(signId, signName, score);
+          }
+        }}
         onToggleCamera={onToggleCamera}
         onSelectSign={(newSign) => setActiveTrainerSign(newSign)}
         onClose={() => setActiveTrainerSign(null)}
@@ -104,7 +117,7 @@ export const SignDictionaryView: React.FC<SignDictionaryViewProps> = ({
             <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 backdrop-blur-md text-xs text-emerald-300">
               <Award className="w-4 h-4 text-emerald-400" />
               <span className="font-semibold">
-                {Object.keys(practiceCompleted).length} / {SIGN_DICTIONARY.length} Mastered
+                {Object.keys(effectiveMastered).length} / {SIGN_DICTIONARY.length} Mastered
               </span>
             </div>
 

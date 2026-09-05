@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "Transcript": {
+      "title": "Transcript",
+      "description": "A recorded sign-to-speech or speech-to-sign meeting transcript entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "type": { "type": "string", "enum": ["sign_to_speech", "speech_to_sign", "system", "gesture_stream"] },
+        "naturalText": { "type": "string", "maxLength": 2000 },
+        "speaker": { "type": "string", "maxLength": 100 },
+        "confidence": { "type": "number" },
+        "bookmarked": { "type": "boolean" },
+        "tone": { "type": "string", "maxLength": 50 },
+        "aslGloss": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "userId", "timestamp", "type", "naturalText", "speaker", "confidence", "bookmarked"]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "User preferences including background blur filter and meeting overlay settings",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "backgroundBlur": { "type": "string", "enum": ["off", "subtle", "medium", "deep", "bokeh"] },
+        "backgroundBlurRadius": { "type": "number" },
+        "handedness": { "type": "string", "enum": ["Right", "Left", "Auto"] },
+        "highContrastMode": { "type": "boolean" },
+        "fontSize": { "type": "string", "enum": ["sm", "md", "lg", "xl"] },
+        "hapticsEnabled": { "type": "boolean" },
+        "soundCuesEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["userId", "backgroundBlur", "updatedAt"]
+    },
+    "SignMastery": {
+      "title": "SignMastery",
+      "description": "User landmark practice mastery record for an ASL sign",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "signId": { "type": "string" },
+        "signName": { "type": "string", "maxLength": 100 },
+        "bestScore": { "type": "number" },
+        "completed": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["userId", "signId", "signName", "bestScore", "completed", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/transcripts/{transcriptId}": {
+      "schema": "Transcript",
+      "description": "Collection of transcripts belonging to a specific authenticated user"
+    },
+    "/users/{userId}/preferences/{settingId}": {
+      "schema": "UserPreferences",
+      "description": "User display, background blur, and audio preferences"
+    },
+    "/users/{userId}/mastery/{signId}": {
+      "schema": "SignMastery",
+      "description": "User mastery records for individual signs"
+    }
+  }
+}

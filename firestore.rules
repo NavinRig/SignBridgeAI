@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all documents by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection validation endpoint
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // Security helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTranscript(data) {
+      return data.userId == request.auth.uid &&
+        data.id is string && data.id.size() <= 128 &&
+        data.timestamp is number &&
+        data.type in ['sign_to_speech', 'speech_to_sign', 'system', 'gesture_stream'] &&
+        data.naturalText is string && data.naturalText.size() <= 2000 &&
+        data.speaker is string && data.speaker.size() <= 100 &&
+        data.confidence is number && data.confidence >= 0.0 && data.confidence <= 1.0 &&
+        data.bookmarked is bool;
+    }
+
+    function isValidUserPreferences(data) {
+      return data.userId == request.auth.uid &&
+        data.backgroundBlur in ['off', 'subtle', 'medium', 'deep', 'bokeh'] &&
+        data.updatedAt is number;
+    }
+
+    function isValidSignMastery(data) {
+      return data.userId == request.auth.uid &&
+        data.signId is string && data.signId.size() <= 128 &&
+        data.signName is string && data.signName.size() <= 100 &&
+        data.bestScore is number &&
+        data.completed is bool &&
+        data.timestamp is number;
+    }
+
+    // User-scoped data isolation (Attribute-Based Access Control)
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+
+      // User Transcripts
+      match /transcripts/{transcriptId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(transcriptId) && isValidTranscript(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(transcriptId) && isValidTranscript(incoming()) && incoming().userId == existing().userId;
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(transcriptId);
+      }
+
+      // User Preferences & Background Blur
+      match /preferences/{settingId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create, update: if isSignedIn() && request.auth.uid == userId && isValidId(settingId) && isValidUserPreferences(incoming());
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(settingId);
+      }
+
+      // Sign Trainer Mastery
+      match /mastery/{signId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create, update: if isSignedIn() && request.auth.uid == userId && isValidId(signId) && isValidSignMastery(incoming());
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(signId);
+      }
+    }
+  }
+}

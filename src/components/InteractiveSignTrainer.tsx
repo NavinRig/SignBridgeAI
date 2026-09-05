@@ -39,6 +39,8 @@ interface InteractiveSignTrainerProps {
   detectedGesture: DetectedGesture | null;
   videoStream: MediaStream | null;
   isCameraActive: boolean;
+  initialMasteredSigns?: Record<string, boolean>;
+  onSignMastered?: (signId: string, signName: string, score: number) => void;
   onToggleCamera: () => void;
   onSelectSign: (sign: SignDefinition) => void;
   onClose: () => void;
@@ -62,6 +64,8 @@ export const InteractiveSignTrainer: React.FC<InteractiveSignTrainerProps> = ({
   detectedGesture,
   videoStream,
   isCameraActive,
+  initialMasteredSigns,
+  onSignMastered,
   onToggleCamera,
   onSelectSign,
   onClose,
@@ -71,7 +75,7 @@ export const InteractiveSignTrainer: React.FC<InteractiveSignTrainerProps> = ({
   const [viewMode, setViewMode] = useState<'split' | 'ghost_overlay'>('split');
   const [voiceGuidance, setVoiceGuidance] = useState<boolean>(true);
   const [showGhostOnCamera, setShowGhostOnCamera] = useState<boolean>(true);
-  const [masteredSigns, setMasteredSigns] = useState<Record<string, boolean>>({});
+  const [masteredSigns, setMasteredSigns] = useState<Record<string, boolean>>(initialMasteredSigns || {});
   const [streakCount, setStreakCount] = useState<number>(0);
   const [holdProgress, setHoldProgress] = useState<number>(0); // 0 to 100%
   const [isSignMastered, setIsSignMastered] = useState<boolean>(false);
@@ -135,6 +139,9 @@ export const InteractiveSignTrainer: React.FC<InteractiveSignTrainerProps> = ({
         setIsSignMastered(true);
         setMasteredSigns((prev) => ({ ...prev, [currentSign.id]: true }));
         setStreakCount((prev) => prev + 1);
+        if (onSignMastered) {
+          onSignMastered(currentSign.id, currentSign.name, matchResult.overallScore);
+        }
         hapticService.trigger('success');
         audioEngine.playChime();
 

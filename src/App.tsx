@@ -25,14 +25,38 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronRight,
-  Monitor
+  Monitor,
+  Aperture,
+  LogIn,
+  LogOut,
+  User as UserIcon,
+  Cloud,
+  Sliders,
+  Smile
 } from 'lucide-react';
+import { User } from 'firebase/auth';
+import {
+  signInWithGoogle,
+  signOutUser,
+  onAuthChange,
+  subscribeUserTranscripts,
+  saveTranscriptToFirestore,
+  toggleBookmarkInFirestore,
+  deleteTranscriptFromFirestore,
+  subscribeUserPreferences,
+  saveUserPreferencesToFirestore,
+  subscribeUserMastery,
+  saveSignMasteryToFirestore
+} from './services/firebase';
 import {
   DetectedGesture,
   HandLandmark,
+  FaceLandmark,
+  DetectedEmotion,
   OverlaySettings,
   TranscriptItem,
-  AvatarKeyframe
+  AvatarKeyframe,
+  BackgroundBlurMode
 } from './types';
 import { cameraService } from './services/cameraManager';
 import { gestureClassifier } from './services/gestureEngine';
@@ -55,6 +79,8 @@ export default function App() {
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [landmarks, setLandmarks] = useState<HandLandmark[]>([]);
+  const [faceLandmarks, setFaceLandmarks] = useState<FaceLandmark[]>([]);
+  const [detectedEmotion, setDetectedEmotion] = useState<DetectedEmotion | null>(null);
   const [currentGesture, setCurrentGesture] = useState<DetectedGesture | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
@@ -110,16 +136,93 @@ export default function App() {
     highContrastMode: false,
     fontSize: 'md',
     simulatedMeetingBg: 'google_meet',
+    backgroundBlur: 'medium',
+    backgroundBlurRadius: 14,
     fpsLimit: 30,
     speechRate: 1.0,
     autoCommitDelayMs: 2500,
   });
+
+  // Firebase User & Cloud State
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'guest'>('guest');
+  const [userMasteredSigns, setUserMasteredSigns] = useState<Record<string, boolean>>({});
+  const [showBlurNavMenu, setShowBlurNavMenu] = useState<boolean>(false);
+
+  // Firebase Authentication & Firestore Subscriptions
+  useEffect(() => {
+    let unsubTranscripts: (() => void) | undefined;
+    let unsubPrefs: (() => void) | undefined;
+    let unsubMastery: (() => void) | undefined;
+
+    const unsubAuth = onAuthChange((user) => {
+      setFirebaseUser(user);
+      setIsAuthLoading(false);
+
+      if (user) {
+        setCloudSyncStatus('syncing');
+
+        // Real-time Transcripts Sync
+        unsubTranscripts = subscribeUserTranscripts(user.uid, (items) => {
+          if (items && items.length > 0) {
+            setTranscripts(items);
+            storageService.saveTranscripts(items);
+          } else {
+            // Seed cloud with existing local transcripts
+            const currentLocal = storageService.getTranscripts();
+            currentLocal.forEach((t) => saveTranscriptToFirestore(user.uid, t));
+          }
+          setCloudSyncStatus('synced');
+        });
+
+        // Real-time Preferences Sync (including Background Blur Filter)
+        unsubPrefs = subscribeUserPreferences(user.uid, (prefs) => {
+          if (prefs) {
+            setOverlaySettings((prev) => ({
+              ...prev,
+              backgroundBlur: prefs.backgroundBlur || prev.backgroundBlur,
+              backgroundBlurRadius: prefs.backgroundBlurRadius ?? prev.backgroundBlurRadius,
+              highContrastMode: prefs.highContrastMode ?? prev.highContrastMode,
+              fontSize: prefs.fontSize || prev.fontSize,
+              hapticsEnabled: prefs.hapticsEnabled ?? prev.hapticsEnabled,
+              soundCuesEnabled: prefs.soundCuesEnabled ?? prev.soundCuesEnabled,
+            }));
+          }
+        });
+
+        // Real-time ASL Sign Mastery Sync
+        unsubMastery = subscribeUserMastery(user.uid, (mastery) => {
+          setUserMasteredSigns(mastery);
+        });
+      } else {
+        setCloudSyncStatus('guest');
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubTranscripts) unsubTranscripts();
+      if (unsubPrefs) unsubPrefs();
+      if (unsubMastery) unsubMastery();
+    };
+  }, []);
 
   const handleUpdateSettings = (newSettings: Partial<OverlaySettings>) => {
     setOverlaySettings((prev) => {
       const updated = { ...prev, ...newSettings };
       hapticService.setHapticsEnabled(updated.hapticsEnabled);
       hapticService.setSoundEnabled(updated.soundCuesEnabled);
+      if (firebaseUser) {
+        saveUserPreferencesToFirestore(firebaseUser.uid, {
+          backgroundBlur: updated.backgroundBlur,
+          backgroundBlurRadius: updated.backgroundBlurRadius,
+          highContrastMode: updated.highContrastMode,
+          fontSize: updated.fontSize,
+          hapticsEnabled: updated.hapticsEnabled,
+          soundCuesEnabled: updated.soundCuesEnabled,
+        });
+      }
       return updated;
     });
   };
@@ -136,15 +239,21 @@ export default function App() {
     } else {
       setCameraError(null);
       try {
-        const stream = await cameraService.startCamera((detectedLandmarks, handedness) => {
-          setLandmarks(detectedLandmarks);
-          if (detectedLandmarks.length >= 21) {
-            const gesture = gestureClassifier.classifyHand(detectedLandmarks, handedness);
-            setCurrentGesture(gesture);
-          } else {
-            setCurrentGesture(null);
+        const stream = await cameraService.startCamera(
+          (detectedLandmarks, handedness) => {
+            setLandmarks(detectedLandmarks);
+            if (detectedLandmarks.length >= 21) {
+              const gesture = gestureClassifier.classifyHand(detectedLandmarks, handedness);
+              setCurrentGesture(gesture);
+            } else {
+              setCurrentGesture(null);
+            }
+          },
+          (detectedFaceLandmarks, emotion) => {
+            setFaceLandmarks(detectedFaceLandmarks);
+            setDetectedEmotion(emotion);
           }
-        });
+        );
         setVideoStream(stream);
         setIsCameraActive(true);
         hapticService.trigger('medium');
@@ -251,7 +360,7 @@ export default function App() {
       type: 'sign_to_speech',
       rawSigns: [...accumulatedSigns],
       naturalText: naturalTranslation || accumulatedSigns.join(' '),
-      speaker: 'Signer (You)',
+      speaker: firebaseUser?.displayName ? `Signer (${firebaseUser.displayName})` : 'Signer (You)',
       confidence: currentGesture?.confidence || 0.94,
       bookmarked: false,
       tone: 'conversational',
@@ -260,9 +369,32 @@ export default function App() {
 
     const updated = storageService.addTranscript(newItem);
     setTranscripts(updated);
+    if (firebaseUser) {
+      saveTranscriptToFirestore(firebaseUser.uid, newItem);
+    }
     setAccumulatedSigns([]);
     setNaturalTranslation('');
     hapticService.trigger('success');
+  };
+
+  // Toggle Bookmark in local storage & Firestore
+  const handleToggleBookmark = (id: string) => {
+    const target = transcripts.find((t) => t.id === id);
+    const nextBookmarked = target ? !target.bookmarked : true;
+    const updated = storageService.toggleBookmark(id);
+    setTranscripts(updated);
+    if (firebaseUser) {
+      toggleBookmarkInFirestore(firebaseUser.uid, id, nextBookmarked);
+    }
+  };
+
+  // Delete transcript in local storage & Firestore
+  const handleDeleteTranscript = (id: string) => {
+    const updated = storageService.deleteTranscript(id);
+    setTranscripts(updated);
+    if (firebaseUser) {
+      deleteTranscriptFromFirestore(firebaseUser.uid, id);
+    }
   };
 
   // Speech to Sign Translation via Microphone
@@ -394,6 +526,84 @@ export default function App() {
 
           {/* System Status Indicators (Offline Support + Haptics + Camera) */}
           <div className="flex items-center gap-2">
+            {/* Background Blur Filter Quick Control Pill */}
+            <div className="relative">
+              <button
+                onClick={() => setShowBlurNavMenu(!showBlurNavMenu)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold backdrop-blur-md transition-all ${
+                  overlaySettings.backgroundBlur !== 'off'
+                    ? 'bg-blue-600/85 hover:bg-blue-500 text-white shadow-md shadow-blue-500/25 border border-blue-400/40'
+                    : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10'
+                }`}
+                title="Adjust Background Blur Filter for Camera"
+              >
+                <Aperture className="w-3.5 h-3.5 text-cyan-300" />
+                <span>Blur: {overlaySettings.backgroundBlur !== 'off' ? `${overlaySettings.backgroundBlurRadius}px` : 'Off'}</span>
+              </button>
+
+              {/* Quick Blur Dropdown */}
+              {showBlurNavMenu && (
+                <div className="absolute right-0 mt-2 w-56 p-3 rounded-2xl bg-slate-900/95 border border-blue-400/30 backdrop-blur-2xl shadow-2xl z-50 text-slate-100 space-y-2">
+                  <div className="text-[11px] font-bold text-white flex items-center justify-between">
+                    <span>Camera Background Blur</span>
+                    <span className="font-mono text-cyan-300">{overlaySettings.backgroundBlurRadius}px</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-[10px]">
+                    {[
+                      { mode: 'off', label: 'Off', r: 0 },
+                      { mode: 'subtle', label: 'Subtle', r: 6 },
+                      { mode: 'medium', label: 'Medium', r: 14 },
+                      { mode: 'deep', label: 'Bokeh', r: 24 },
+                    ].map((opt) => (
+                      <button
+                        key={opt.mode}
+                        onClick={() => {
+                          handleUpdateSettings({
+                            backgroundBlur: opt.mode as BackgroundBlurMode,
+                            backgroundBlurRadius: opt.r,
+                          });
+                          setShowBlurNavMenu(false);
+                        }}
+                        className={`py-1.5 px-2 rounded-xl font-bold transition-all text-center ${
+                          overlaySettings.backgroundBlur === opt.mode
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                        }`}
+                      >
+                        {opt.label} ({opt.r}px)
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Firebase Auth & Firestore Sync Button */}
+            {firebaseUser ? (
+              <div className="flex items-center gap-2 pl-1 border-l border-white/10">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-xs font-semibold backdrop-blur-md">
+                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="max-w-[120px] truncate">{firebaseUser.displayName || firebaseUser.email?.split('@')[0]}</span>
+                </div>
+                <button
+                  onClick={() => signOutUser()}
+                  className="p-1.5 rounded-xl bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/10 transition-colors"
+                  title="Sign Out of Firebase"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => signInWithGoogle()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white border border-white/15 text-xs font-semibold backdrop-blur-md transition-all shadow-sm"
+                title="Sign in with Google to sync transcripts and preferences to Firebase Firestore"
+              >
+                <LogIn className="w-3.5 h-3.5 text-blue-400" />
+                <span>Sign In (Firebase)</span>
+              </button>
+            )}
+
             {/* Online / Offline Status Badge */}
             <div
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border backdrop-blur-md transition-all ${
@@ -404,10 +614,20 @@ export default function App() {
               title={isOnline ? 'Connected to Gemini Cloud AI' : 'On-Device Offline Gesture Engine Active'}
             >
               {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              <span>{isOnline ? 'Online (Gemini Pro)' : 'Offline (On-Device Model)'}</span>
+              <span>{isOnline ? 'Online (Gemini)' : 'Offline'}</span>
             </div>
 
             {/* Quick Camera & Mic Toggles in Navbar */}
+            {isCameraActive && detectedEmotion && (
+              <div
+                className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 shadow-sm backdrop-blur-md"
+                title={`Live Face Emotion: ${detectedEmotion.emotion} (${Math.round(detectedEmotion.confidence * 100)}%) • Non-manual Marker: ${detectedEmotion.nonManualMarker}`}
+              >
+                <Smile className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Emotion: {detectedEmotion.emotion} ({Math.round(detectedEmotion.confidence * 100)}%)</span>
+              </div>
+            )}
+
             <button
               onClick={handleToggleCamera}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold backdrop-blur-md transition-all ${
@@ -572,8 +792,18 @@ export default function App() {
                   videoStream={videoStream}
                   isCameraActive={isCameraActive}
                   landmarks={landmarks}
+                  faceLandmarks={faceLandmarks}
+                  detectedEmotion={detectedEmotion}
                   currentGesture={currentGesture}
                   naturalTranslation={naturalTranslation}
+                  backgroundBlur={overlaySettings.backgroundBlur}
+                  backgroundBlurRadius={overlaySettings.backgroundBlurRadius}
+                  onUpdateBackgroundBlur={(bMode, radius) => {
+                    handleUpdateSettings({
+                      backgroundBlur: bMode,
+                      backgroundBlurRadius: radius,
+                    });
+                  }}
                   onToggleCamera={handleToggleCamera}
                   onToggleScreenShare={handleToggleScreenShare}
                 />
@@ -630,6 +860,11 @@ export default function App() {
                   aslGloss={avatarGloss}
                   gestureSequence={avatarGestureSequence}
                   compact={true}
+                  isCameraActive={isCameraActive}
+                  currentGesture={currentGesture}
+                  detectedEmotion={detectedEmotion}
+                  landmarks={landmarks}
+                  faceLandmarks={faceLandmarks}
                 />
               </div>
             </div>
@@ -739,6 +974,11 @@ export default function App() {
               aslGloss={avatarGloss}
               gestureSequence={avatarGestureSequence}
               compact={false}
+              isCameraActive={isCameraActive}
+              currentGesture={currentGesture}
+              detectedEmotion={detectedEmotion}
+              landmarks={landmarks}
+              faceLandmarks={faceLandmarks}
             />
           </div>
         )}
@@ -749,12 +989,16 @@ export default function App() {
             <TranscriptManager
               transcripts={transcripts}
               onUpdateTranscripts={setTranscripts}
+              onToggleBookmark={handleToggleBookmark}
+              onDeleteTranscript={handleDeleteTranscript}
               onSelectGlossForAvatar={(text, gloss) => {
                 setSpokenText(text);
                 if (gloss) setAvatarGloss(gloss);
                 setActiveTab('avatar_speech');
                 handleSpeechToSignGloss(text);
               }}
+              isCloudSynced={Boolean(firebaseUser)}
+              userEmail={firebaseUser?.email || null}
             />
           </div>
         )}
@@ -767,6 +1011,13 @@ export default function App() {
               userLandmarks={landmarks}
               videoStream={videoStream}
               isCameraActive={isCameraActive}
+              masteredSigns={userMasteredSigns}
+              onSaveMastery={(signId, signName, score) => {
+                setUserMasteredSigns((prev) => ({ ...prev, [signId]: true }));
+                if (firebaseUser) {
+                  saveSignMasteryToFirestore(firebaseUser.uid, signId, signName, score);
+                }
+              }}
               onToggleCamera={handleToggleCamera}
               onSelectForAvatar={(text, gloss) => {
                 setSpokenText(text);

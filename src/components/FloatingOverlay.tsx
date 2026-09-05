@@ -510,6 +510,31 @@ export const FloatingOverlay: React.FC<FloatingOverlayProps> = ({
                 <option value="teams_gallery" className="bg-slate-900 text-slate-200">MS Teams Grid</option>
               </select>
             </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Camera Background Blur</span>
+              <div className="flex items-center gap-1">
+                {(['off', 'subtle', 'medium', 'deep'] as const).map((bMode) => (
+                  <button
+                    key={bMode}
+                    onClick={() => {
+                      const radiusMap = { off: 0, subtle: 6, medium: 14, deep: 24 };
+                      onUpdateSettings({
+                        backgroundBlur: bMode,
+                        backgroundBlurRadius: radiusMap[bMode],
+                      });
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold capitalize transition-all ${
+                      settings.backgroundBlur === bMode
+                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30'
+                        : 'bg-white/5 text-slate-400 border border-white/10 hover:text-white'
+                    }`}
+                  >
+                    {bMode}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>

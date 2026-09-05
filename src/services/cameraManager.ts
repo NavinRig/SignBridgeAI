@@ -1,4 +1,5 @@
-import { HandLandmark } from '../types';
+import { HandLandmark, FaceLandmark, DetectedEmotion } from '../types';
+import { faceEmotionEngine } from './faceEmotionEngine';
 
 export class CameraService {
   private stream: MediaStream | null = null;
@@ -6,11 +7,73 @@ export class CameraService {
   private isProcessing: boolean = false;
   private animFrameId: number | null = null;
   private onLandmarksCallback: ((landmarks: HandLandmark[], handedness: 'Left' | 'Right') => void) | null = null;
+  private onFaceEmotionCallback: ((landmarks: FaceLandmark[], emotion: DetectedEmotion | null) => void) | null = null;
   private mediapipeHands: any = null;
   private isMediaPipeReady: boolean = false;
+  private mediapipeFaceMesh: any = null;
+  private isFaceMeshReady: boolean = false;
 
   constructor() {
     this.initMediaPipeHands();
+    this.initMediaPipeFaceMesh();
+  }
+
+  private async initMediaPipeFaceMesh() {
+    if (typeof window === 'undefined') return;
+
+    try {
+      if (!(window as any).FaceMesh) {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js';
+        script.crossOrigin = 'anonymous';
+        script.async = true;
+        document.head.appendChild(script);
+
+        await new Promise((resolve) => {
+          script.onload = resolve;
+          script.onerror = () => {
+            console.warn('MediaPipe FaceMesh script load deferred; fallback vision tracker active');
+            resolve(null);
+          };
+        });
+      }
+
+      if ((window as any).FaceMesh) {
+        const faceMesh = new (window as any).FaceMesh({
+          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`,
+        });
+
+        faceMesh.setOptions({
+          maxNumFaces: 1,
+          refineLandmarks: false,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+
+        faceMesh.onResults((results: any) => {
+          if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            const rawFace = results.multiFaceLandmarks[0];
+            const { landmarks, emotion } = faceEmotionEngine.processMediaPipeFaceMesh(rawFace);
+            if (this.onFaceEmotionCallback) {
+              this.onFaceEmotionCallback(landmarks, emotion);
+            }
+          } else if (this.videoElement) {
+            // Local fallback analysis
+            try {
+              const { landmarks, emotion } = faceEmotionEngine.analyzeVideoFrame(this.videoElement);
+              if (this.onFaceEmotionCallback) {
+                this.onFaceEmotionCallback(landmarks, emotion);
+              }
+            } catch (e) {}
+          }
+        });
+
+        this.mediapipeFaceMesh = faceMesh;
+        this.isFaceMeshReady = true;
+      }
+    } catch (e) {
+      console.warn('MediaPipe FaceMesh initialization note:', e);
+    }
   }
 
   private async initMediaPipeHands() {
@@ -76,10 +139,20 @@ export class CameraService {
     }
   }
 
+  public setFaceEmotionListener(
+    callback: ((landmarks: FaceLandmark[], emotion: DetectedEmotion | null) => void) | null
+  ) {
+    this.onFaceEmotionCallback = callback;
+  }
+
   public async startCamera(
-    onLandmarks: (landmarks: HandLandmark[], handedness: 'Left' | 'Right') => void
+    onLandmarks: (landmarks: HandLandmark[], handedness: 'Left' | 'Right') => void,
+    onFaceEmotion?: (landmarks: FaceLandmark[], emotion: DetectedEmotion | null) => void
   ): Promise<MediaStream> {
     this.onLandmarksCallback = onLandmarks;
+    if (onFaceEmotion) {
+      this.onFaceEmotionCallback = onFaceEmotion;
+    }
 
     if (this.stream) {
       this.startProcessingLoop();
@@ -165,6 +238,28 @@ export class CameraService {
             await this.mediapipeHands.send({ image: this.videoElement });
           } catch (err) {
             // MediaPipe frame skip
+          }
+        }
+
+        // Process Facial Landmarks and Non-Manual Emotion Recognition
+        if (this.onFaceEmotionCallback && this.videoElement) {
+          if (this.mediapipeFaceMesh && this.isFaceMeshReady) {
+            try {
+              await this.mediapipeFaceMesh.send({ image: this.videoElement });
+            } catch (err) {
+              // Frame skip fallback
+              try {
+                const { landmarks, emotion } = faceEmotionEngine.analyzeVideoFrame(this.videoElement);
+                this.onFaceEmotionCallback(landmarks, emotion);
+              } catch (e) {}
+            }
+          } else {
+            try {
+              const { landmarks, emotion } = faceEmotionEngine.analyzeVideoFrame(this.videoElement);
+              this.onFaceEmotionCallback(landmarks, emotion);
+            } catch (err) {
+              // Frame skip
+            }
           }
         }
       }
